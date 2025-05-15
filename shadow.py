@@ -34,7 +34,7 @@ def get_umbra(dt: datetime, location: EarthLocation=None, printbool:bool=False):
 
     Args:
         dt (datetime): datetime object with tz = pytz.UTC.
-        location (EarthLocation): location on earth. Defaults to None.
+        location (EarthLocation): observer location in geodetic coordinates (longitude, latitude, height above a reference ellipsoid). When using the geodetic forms, Longitudes are measured increasing to the east, so west longitudes are negative. Defaults to None.
         printbool (bool, optional): if True, all return values will print. Defaults to False.
 
     Returns:
@@ -133,7 +133,7 @@ def get_azimuth_totality_path(start_dt:datetime,end_dt:datetime,obs_loc:EarthLoc
     Args:
         start_dt (datetime):  start time. start_time < end_time
         end_dt (datetime): end time.
-        obs_loc (EarthLocation):observer location.
+        obs_loc (EarthLocation): observer location in geodetic coordinates (longitude, latitude, height above a reference ellipsoid). When using the geodetic forms, Longitudes are measured increasing to the east, so west longitudes are negative.
 
     Returns:
         float: average direction for path of totality. angle in  degrees.
@@ -169,7 +169,7 @@ def get_signed_dist_to_umbra(dt:datetime, az_totality_path:float, obs_loc:EarthL
     return sign*dist/1000 #m -> km
 
 def horizontal(altitude: float, za: float, hoffset: float = 0) -> float:
-    """Calculates the horizontal distance in km for a given zenith angle and alittude.
+    """Calculates the horizontal distance in km for a given zenith angle and altitude.
 
     Args:
         altitude (float): altitude in km.
@@ -182,6 +182,14 @@ def horizontal(altitude: float, za: float, hoffset: float = 0) -> float:
     return altitude/np.cos(np.deg2rad(za)) + hoffset
 
 def get_umbra_speed(location:EarthLocation, start_dt:datetime, end_dt:datetime, t_interval_s:int):
+    """Prints Speed of the umbra at a given time.
+
+    Args:
+        location (EarthLocation): observer location in geodetic coordinates (longitude, latitude, height above a reference ellipsoid). When using the geodetic forms, Longitudes are measured increasing to the east, so west longitudes are negative.
+        start_dt (datetime): start time in UTC.
+        end_dt (datetime): end time in UTC.
+        t_interval_s (int): time interval in seconds.
+    """    
     interval = timedelta(seconds=t_interval_s)
     geod = Geod(ellps="WGS84")
     
@@ -217,77 +225,73 @@ if __name__ == '__main__':
     location = EarthLocation(lat=44.77*u.deg, lon=-73.29*u.deg) #North Hero, VT
     peak_dt = datetime(2024,4,8,19,27,46, tzinfo = UTC)
     tdel = 10
-    start_dt, end_dt = peak_dt - timedelta(minutes = tdel), peak_dt + timedelta(minutes = tdel)
-
-    uloc,ru,phi = get_umbra(peak_dt,location,True)
-    eclipse_path = get_azimuth_totality_path(start_dt,end_dt,location)
-    dist = get_signed_dist_to_umbra(peak_dt,eclipse_path,location)
-    print(f'distance of umbra from location: {dist:0.2f} km')
-    get_umbra_speed(location,start_dt,end_dt,120)
-
-#%%
-plot = True
-if plot:
-    location = EarthLocation(lat=44.77*u.deg, lon=-73.29*u.deg) #North Hero, VT
-    
-    peak_dt = datetime(2024,4,8,19,27,40, tzinfo = UTC)
-    tdel = 10
     start_dt =  peak_dt - timedelta(minutes = tdel)
     end_dt = peak_dt + timedelta(minutes = tdel)
-    
-    #time stamps and corresponding transparency for plotting
-    offset_minutes = [5,10,20]
-    max_alpha = 1
-    tau = 5  # control how fast it fades
-    alphas = [max_alpha] # transparency
-    obstime_utc = [peak_dt] 
 
-    for minutes in offset_minutes: #creates tstamps at each ofset_min on eitherside of the center dt.
-        alpha = max_alpha * np.exp(-minutes / tau)
-        alphas.append(alpha)
-        alphas.append(alpha)
-        delta = timedelta(minutes=minutes)
-        obstime_utc.append(peak_dt - delta)  # time before
-        obstime_utc.append(peak_dt + delta)  # time after
-    sorted_pairs = sorted(zip(obstime_utc, alphas), key=lambda x: x[0])
-    obstime_utc, alphas = zip(*sorted_pairs)
-
-    #direction of path of totality
+    #umbra location, radius, and zenith angle of umbra
+    uloc,ru,phi = get_umbra(peak_dt,location,True)
+    # direction of eclipse path described by azimuth
     eclipse_path = get_azimuth_totality_path(start_dt,end_dt,location)
+    # distace along the path of totality wrt the observer location
+    dist = get_signed_dist_to_umbra(peak_dt,eclipse_path,location)
+    print(f'distance of umbra from location: {dist:0.2f} km')
+    #umbra speed over the time interval at dt = 120s
+    get_umbra_speed(location,start_dt,end_dt,120)
 
-    #PLOTTING
-    fig, ax = plt.subplots(1, 1, figsize=(6.4, 4.8), dpi=300,tight_layout=True, squeeze=True)
-    altitude = np.linspace(0, 500, 10)  # km
+    plot = True
+    if plot:
+        #time stamps and corresponding transparency for plotting
+        offset_minutes = [5,10,20]
+        max_alpha = 1
+        tau = 5  # control how fast it fades
+        alphas = [max_alpha] # transparency
+        obstime_utc = [peak_dt] 
 
-    #plot slit
-    slit_el, slit_az = 60, 230  # deg
-    fov = [horizontal(a,90-slit_el) for a in -altitude]
-    ax.plot(fov, altitude, color='k', lw=1)
+        for minutes in offset_minutes: #creates tstamps at each ofset_min on eitherside of the center dt.
+            alpha = max_alpha * np.exp(-minutes / tau)
+            alphas.append(alpha)
+            alphas.append(alpha)
+            delta = timedelta(minutes=minutes)
+            obstime_utc.append(peak_dt - delta)  # time before
+            obstime_utc.append(peak_dt + delta)  # time after
+        sorted_pairs = sorted(zip(obstime_utc, alphas), key=lambda x: x[0])
+        obstime_utc, alphas = zip(*sorted_pairs)
 
-    #plot umbra at time stamps chosen above
-    for i, t in enumerate(obstime_utc):
-        uloc,ru,phi = get_umbra(t, location,False)
-        d = get_signed_dist_to_umbra(t,eclipse_path,location)
-        line1 = [horizontal(a,phi,d-ru) for a in altitude]
-        line2 = [horizontal(a,phi,d+ru) for a in altitude]
-        ax.plot(line1, altitude, color='orange', lw=0.5)
-        ax.plot(line2, altitude, color='orange', lw=0.5)
-        _,_,ecp = solar_eclipse(t,location)
-        ax.fill_betweenx(altitude,line1,line2,alpha=.5, color='orange')
+        #direction of path of totality
+        eclipse_path = get_azimuth_totality_path(start_dt,end_dt,location)
 
-        
-        hhmm = t.strftime(f"%H:%M {UTC}")
-        x = (line2[-1] + line2[0])/2
-        y = 300
-        ax.text(x+40, y, f'{hhmm} - {ecp*100:.0f} %',rotation=90-phi-10,ha='center', va='bottom',rotation_mode='default', transform_rotates_text=True, fontsize = 8)
+        #PLOTTING
+        fig, ax = plt.subplots(1, 1, figsize=(6.4, 4.8), dpi=300,tight_layout=True, squeeze=True)
+        altitude = np.linspace(0, 500, 10)  # km
 
+        #plot slit
+        slit_el, slit_az = 60, 230  # deg
+        fov = [horizontal(a,90-slit_el) for a in -altitude]
+        ax.plot(fov, altitude, color='k', lw=1)
 
-    # ax.grid(color = 'grey', ls = '--', lw = 0.5, alpha = 0.3)
-    # ax.set_xlim(-200,200)
-    ax.set_ylim(0,400)
-    ax.set_xlabel('Horizontal Distance along Path of Totality (km)')
-    ax.set_ylabel('Altitude (km)')
-    ax.grid(True, linestyle='--', alpha=0.6, lw = .2)
+        #plot umbra at time stamps chosen above
+        for i, t in enumerate(obstime_utc):
+            uloc,ru,phi = get_umbra(t, location,False)
+            d = get_signed_dist_to_umbra(t,eclipse_path,location)
+            line1 = [horizontal(a,phi,d-ru) for a in altitude]
+            line2 = [horizontal(a,phi,d+ru) for a in altitude]
+            ax.plot(line1, altitude, color='orange', lw=0.5)
+            ax.plot(line2, altitude, color='orange', lw=0.5)
+            _,_,ecp = solar_eclipse(t,location)
+            ax.fill_betweenx(altitude,line1,line2,alpha=.5, color='orange')
+
+            
+            hhmm = t.strftime(f"%H:%M {UTC}")
+            x = (line2[-1] + line2[0])/2
+            y = 300
+            ax.text(x+40, y, f'{hhmm} - {ecp*100:.0f} %',rotation=90-phi-10,ha='center', va='bottom',rotation_mode='default', transform_rotates_text=True, fontsize = 8)
+
+        ax.grid(color = 'grey', ls = '--', lw = 0.5, alpha = 0.3)
+        # ax.set_xlim(-200,200)
+        ax.set_ylim(0,400)
+        ax.set_xlabel('Horizontal Distance along Path of Totality (km)')
+        ax.set_ylabel('Altitude (km)')
+
 
 
 
